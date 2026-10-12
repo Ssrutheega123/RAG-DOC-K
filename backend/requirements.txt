@@ -7,3 +7,14 @@ waitress
 gunicorn
 flask_cors
 flask-session
+Flask
+flask-cors
+python-dotenv
+pymongo
+dnspython
+requests
+sentence-transformers
+torch
+qdrant-client
+groq
+huggingface_hub

@@ -1,43 +1,29 @@
 import ReactMarkdown from "react-markdown";
-import remarkGfm from "remark-gfm";
-import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
-import { oneDark } from "react-syntax-highlighter/dist/esm/styles/prism";
-import { useEffect, useState } from "react";
-import { API_BASE } from "../config";
 
-export default function DocContent({ activeDoc }) {
+export default function DocContent({ content }) {
 
-  const [content, setContent] = useState("");
+  if (!content) {
 
-  useEffect(() => {
+    return (
+      <div className="text-gray-400">
+        No document selected.
+      </div>
+    );
 
-    if (!activeDoc) return;
-
-    fetch(`${API_BASE}/docs/${activeDoc}`, {
-      credentials: "include"
-    })
-      .then(res => res.json())
-      .then(data => {
-
-        setContent(data.content);
-
-      });
-
-  }, [activeDoc]);
-
+  }
 
   return (
 
-    <div className="max-w-4xl mx-auto">
-  
+    <div className="prose prose-invert max-w-none">
+
       <ReactMarkdown>
-  
+
         {content}
-  
+
       </ReactMarkdown>
-  
+
     </div>
-  
+
   );
 
 }

@@ -133,3 +133,38 @@ code {
 .prose pre {
   @apply rounded-lg overflow-hidden;
 }
+
+
+/* 1. Hide the default scrollbar lines across the whole app */
+* {
+  scrollbar-width: thin; /* For Firefox */
+  scrollbar-color: var(--border) transparent; /* For Firefox */
+}
+
+/* 2. Target Chrome, Edge, and Safari specifically */
+::-webkit-scrollbar {
+  width: 6px; /* Thin scrollbar */
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent; /* Makes the 'track' line disappear */
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--border); /* Uses your existing border color */
+  border-radius: 10px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--accent); /* Changes color on hover using your accent variable */
+}
+
+/* 3. If you want to COMPLETELY hide them but keep scrolling functional */
+.hide-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+.hide-scrollbar {
+  -ms-overflow-style: none;  /* IE and Edge */
+  scrollbar-width: none;  /* Firefox */
+}

@@ -1,42 +1,47 @@
-import json
-import os
-import time
 import requests
+import uuid
+from datetime import datetime
 
 from flask import Blueprint, jsonify, request, session
 
 from config import docs_collection, repos_collection
+from ai.chunking.chunk_service import chunk_text
+from ai.embedding.embedding_service import embed_batch
+from ai.vectorstore.qdrant_service import upsert_vector
+from services.rag_service import embed_and_store
 
 
 docs_bp = Blueprint("docs", __name__)
 
 
-# agent logging helper
-def _agent_log(hypothesis_id: str, location: str, message: str, data: dict | None = None) -> None:
-    try:
-        root = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
-        path = os.path.join(root, "debug-6be4ef.log")
+########################################################
+# Extract markdown headings as sections
+########################################################
 
-        payload = {
-            "sessionId": "6be4ef",
-            "hypothesisId": hypothesis_id,
-            "location": location,
-            "message": message,
-            "data": data or {},
-            "timestamp": int(time.time() * 1000),
-        }
+def extract_sections(markdown):
 
-        with open(path, "a", encoding="utf-8") as f:
-            f.write(json.dumps(payload) + "\n")
+    sections = []
 
-    except OSError:
-        pass
+    for line in markdown.split("\n"):
+
+        if line.startswith("#"):
+
+            heading = line.replace("#", "").strip()
+
+            anchor = heading.lower().replace(" ", "-").replace(".", "")
+
+            sections.append({
+                "heading": heading,
+                "anchor": anchor
+            })
+
+    return sections
 
 
-_agent_log("H1", "docs_routes.py:module", "docs_routes module loaded", {})
+########################################################
+# GitHub auth header helper
+########################################################
 
-
-# github auth header helper
 def _github_headers():
 
     token = session.get("github_token")
@@ -50,16 +55,18 @@ def _github_headers():
     }
 
 
-# recursive markdown fetcher
+########################################################
+# Recursive markdown fetcher
+########################################################
+
 def fetch_markdown_files(owner, repo, path=""):
 
     url = f"https://api.github.com/repos/{owner}/{repo}/contents/{path}"
 
-    r = requests.get(
-        url,
-        headers=_github_headers(),
-        timeout=30
-    )
+    try:
+        r = requests.get(url, headers=_github_headers(), timeout=10)
+    except requests.exceptions.RequestException:
+        return []
 
     if r.status_code != 200:
         return []
@@ -68,40 +75,42 @@ def fetch_markdown_files(owner, repo, path=""):
 
     for item in r.json():
 
-        # markdown file
         if item["type"] == "file" and item["name"].lower().endswith(".md"):
 
-            dl = requests.get(
-                item["download_url"],
-                headers=_github_headers(),
-                timeout=30
-            )
+            try:
+                dl = requests.get(
+                    item["download_url"],
+                    headers=_github_headers(),
+                    timeout=10
+                )
+
+                content = dl.text if dl.ok else ""
+
+            except requests.exceptions.RequestException:
+                content = ""
 
             files.append({
                 "path": item["path"],
                 "name": item["name"],
-                "content": dl.text if dl.ok else ""
+                "content": content
             })
 
-        # directory → recurse
         elif item["type"] == "dir":
 
+            # recurse ALL directories
             files.extend(
-                fetch_markdown_files(
-                    owner,
-                    repo,
-                    item["path"]
-                )
+                fetch_markdown_files(owner, repo, item["path"])
             )
 
     return files
 
 
-# load repo route
+########################################################
+# Load repo markdown → MongoDB + Qdrant embeddings
+########################################################
+
 @docs_bp.route("/docs/load-repo", methods=["POST"])
 def load_repo():
-
-    _agent_log("H2", "docs_routes.py:load_repo", "load_repo entry", {})
 
     data = request.get_json() or {}
 
@@ -114,19 +123,30 @@ def load_repo():
     if not session.get("github_token"):
         return jsonify({"error": "not authenticated"}), 401
 
-
-    # fetch markdown recursively
     entries = fetch_markdown_files(owner, repo)
 
+    if not entries:
+        return jsonify({
+            "ok": False,
+            "files_loaded": 0,
+            "message": "No markdown files found"
+        })
 
-    # clear previous docs for repo
+    ##################################################
+    # Delete previous repo docs
+    ##################################################
+
     docs_collection.delete_many({
         "repo": repo,
         "owner": owner
     })
 
+    ##################################################
+    # Process markdown files
+    ##################################################
 
-    # insert docs into mongodb
+    total_chunks = 0
+
     for file in entries:
 
         docs_collection.insert_one({
@@ -135,60 +155,113 @@ def load_repo():
             "owner": owner,
             "doc_id": file["path"],
             "title": file["name"].replace(".md", ""),
-            "content": file["content"]
+            "path": file["path"],
+            "content": file["content"],
+            "last_updated": datetime.utcnow()
 
         })
 
+        chunks = chunk_text(file["content"])
 
-    # track repo usage
+        if not chunks:
+            continue
+
+        vectors = embed_batch(chunks)
+
+        for i, vector in enumerate(vectors):
+
+            point_id = uuid.uuid4().int >> 64
+
+            upsert_vector(
+
+                point_id=point_id,
+
+                vector=vector,
+
+                payload={
+                    "owner": owner,
+                    "repo": repo,
+                    "doc_id": file["path"],
+                    "title": file["name"],
+                    "text": chunks[i]
+                }
+
+            )
+
+            total_chunks += 1
+
+    ##################################################
+    # Save repo metadata
+    ##################################################
+
     repos_collection.update_one(
         {"repo": repo, "owner": owner},
         {"$set": {"repo": repo, "owner": owner}},
         upsert=True
     )
 
-
-    # store repo session
     session["repo"] = repo
     session["owner"] = owner
 
-
     return jsonify({
+
         "ok": True,
-        "files_loaded": len(entries)
+        "files_loaded": len(entries),
+        "chunks_indexed": total_chunks
+
     })
 
 
-# list docs route
+########################################################
+# Docs index endpoint
+########################################################
+
 @docs_bp.route("/docs", methods=["GET"])
 def list_docs():
 
     repo = request.args.get("repo")
+    owner = request.args.get("owner") or session.get("owner")
 
-    if not repo:
-        return jsonify([])
+    if not repo or not owner:
 
-    owner = session.get("owner")
+        return jsonify({
+            "repo": {},
+            "documents": []
+        })
 
-    if not owner:
-        return jsonify([])
+    docs_cursor = docs_collection.find(
 
-
-    cur = docs_collection.find(
         {
             "repo": repo,
             "owner": owner
         },
+
         {
             "_id": 0,
-            "content": 0
+            "doc_id": 1,
+            "title": 1,
+            "path": 1,
+            "last_updated": 1
         }
+
     )
 
-    return jsonify(list(cur))
+    return jsonify({
+
+        "repo": {
+            "name": repo,
+            "owner": owner
+        },
+
+        "documents": list(docs_cursor)
+
+    })
 
 
-# get single doc route
+########################################################
+# Single doc endpoint
+########################################################
+
 @docs_bp.route("/docs/<path:doc_id>", methods=["GET"])
 def get_doc(doc_id):
 
@@ -196,25 +269,34 @@ def get_doc(doc_id):
     owner = session.get("owner")
 
     if not repo or not owner:
-        return jsonify({"content": ""})
-
+        return jsonify({})
 
     doc = docs_collection.find_one(
+
         {
             "repo": repo,
             "owner": owner,
             "doc_id": doc_id
         },
-        {
-            "_id": 0
-        }
+
+        {"_id": 0}
+
     )
 
-
     if not doc:
-        return jsonify({"content": ""})
+        return jsonify({})
 
+    sections = extract_sections(doc.get("content", ""))
 
     return jsonify({
-        "content": doc.get("content", "")
+
+        "doc_id": doc["doc_id"],
+        "title": doc["title"],
+        "repo": repo,
+        "owner": owner,
+        "path": doc["path"],
+        "last_updated": doc.get("last_updated"),
+        "content": doc["content"],
+        "sections": sections
+
     })

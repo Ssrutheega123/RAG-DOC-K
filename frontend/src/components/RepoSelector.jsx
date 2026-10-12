@@ -7,6 +7,10 @@ export default function RepoSelector({ setRepo }) {
   const [loadingRepo, setLoadingRepo] = useState(null);
 
 
+  //////////////////////////////////////////////////////
+  // Load GitHub repositories
+  //////////////////////////////////////////////////////
+
   useEffect(() => {
 
     fetch(`${API_BASE}/auth/github/repos`, {
@@ -17,13 +21,28 @@ export default function RepoSelector({ setRepo }) {
 
         console.log("Repos received:", data);
 
+        // safety check if API returns error object
+        if (!Array.isArray(data)) {
+          console.error("Unexpected repos response:", data);
+          return;
+        }
+
         setRepos(data);
+
+      })
+      .catch(err => {
+
+        console.error("Failed to fetch repos:", err);
 
       });
 
   }, []);
 
 
+
+  //////////////////////////////////////////////////////
+  // Load markdown repo into backend MongoDB
+  //////////////////////////////////////////////////////
 
   const loadRepo = async (repo) => {
 
@@ -48,12 +67,27 @@ export default function RepoSelector({ setRepo }) {
         }
       );
 
+      if (!response.ok) {
+
+        console.error("Repo load failed:", response.status);
+
+        return;
+
+      }
+
       const result = await response.json();
 
       console.log("Repo loaded:", result);
 
-      // store repo in Docs.jsx state
-      setRepo(repo.name);
+
+      //////////////////////////////////////////////////////
+      // IMPORTANT: pass BOTH owner + repo to Docs.jsx
+      //////////////////////////////////////////////////////
+
+      setRepo({
+        name: repo.name,
+        owner: repo.owner.login
+      });
 
     } catch (err) {
 
@@ -64,9 +98,14 @@ export default function RepoSelector({ setRepo }) {
       setLoadingRepo(null);
 
     }
+
   };
 
 
+
+  //////////////////////////////////////////////////////
+  // UI
+  //////////////////////////////////////////////////////
 
   return (
 

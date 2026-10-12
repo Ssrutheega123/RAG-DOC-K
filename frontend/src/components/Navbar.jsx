@@ -12,10 +12,10 @@ export default function Navbar() {
       animate={{ y: 0, opacity: 1 }}
       className="h-14 bg-gray-900 text-white flex items-center justify-between px-6 shadow-md"
     >
-      {/* Logo */}
+      
       <h1 className="text-lg font-semibold">📘 SmartDocs</h1>
 
-      {/* Search */}
+      
       <div className="flex items-center bg-gray-800 px-3 py-1 rounded-lg">
         <Search size={18} />
         <input
@@ -25,7 +25,7 @@ export default function Navbar() {
         />
       </div>
 
-      {/* Right */}
+      
       <button
         onClick={login}
         className="bg-blue-600 px-3 py-1 rounded-lg hover:bg-blue-500"
