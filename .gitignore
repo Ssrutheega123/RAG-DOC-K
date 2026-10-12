@@ -93,3 +93,7 @@ node_modules/
 
 # Cursor IDE
 .cursor/
+
+__pycache__/
+*.pyc
+.env

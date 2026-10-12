@@ -2,24 +2,29 @@ import { useEffect, useState } from "react";
 import { motion } from "framer-motion";
 import { API_BASE } from "../config";
 
-export default function Sidebar({ docs, setActiveDoc }) {
+export default function Sidebar({ docs, setActiveDoc, activeDoc }) {
   return (
-    <div className="fixed left-0 top-0 h-screen w-64 bg-[#0b1b2b] border-r z-40">
-
-      <div className="p-4 font-semibold">
-        Docs
+    <div className="py-2">
+      <div className="px-4 py-2 text-xs uppercase tracking-widest text-gray-500 font-semibold">
+        Documents
       </div>
+
+      {docs.length === 0 && (
+        <div className="px-4 py-3 text-gray-500 text-sm">No docs found</div>
+      )}
 
       {docs.map(doc => (
         <div
           key={doc.doc_id}
           onClick={() => setActiveDoc(doc.doc_id)}
-          className="cursor-pointer hover:bg-gray-700 p-2"
+          className={`cursor-pointer px-4 py-2 text-sm rounded mx-1 transition-colors ${activeDoc === doc.doc_id
+              ? "bg-blue-700 text-white"
+              : "text-gray-300 hover:bg-gray-700"
+            }`}
         >
           {doc.title}
         </div>
       ))}
-
     </div>
   );
 }

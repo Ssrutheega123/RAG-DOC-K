@@ -4,10 +4,14 @@ import os
 from routes.auth_routes import auth_bp
 from routes.docs_routes import docs_bp
 from flask_cors import CORS
+from routes.ai_routes import ai_bp
+from ai.vectorstore.qdrant_service import init_collection
+
 
 def create_app():
 
     app = Flask(__name__)
+    init_collection()
 
     app.config["SECRET_KEY"] = os.getenv("FLASK_SECRET_KEY","smartdocs-secret-key")
     app.config["SESSION_TYPE"] = "filesystem"
@@ -23,6 +27,7 @@ def create_app():
 
     app.register_blueprint(auth_bp)
     app.register_blueprint(docs_bp)
+    app.register_blueprint(ai_bp)
 
     return app
 

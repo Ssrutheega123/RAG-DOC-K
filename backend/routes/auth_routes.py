@@ -37,7 +37,8 @@ def github_callback():
             "client_id": CLIENT_ID,
             "client_secret": CLIENT_SECRET,
             "code": code
-        }
+        },
+        timeout=15
     )
 
     token_json = token_response.json()
@@ -50,10 +51,14 @@ def github_callback():
 
     access_token = token_json["access_token"]
 
-    user_response = requests.get(
-        "https://api.github.com/user",
-        headers={"Authorization": f"Bearer {access_token}"}
-    )
+    try:
+        user_response = requests.get(
+            "https://api.github.com/user",
+            headers={"Authorization": f"Bearer {access_token}"},
+            timeout=15
+        )
+    except requests.exceptions.RequestException:
+        return jsonify({"error": "GitHub API unavailable"}), 500
 
     user_data = user_response.json()
 
@@ -70,10 +75,8 @@ def github_callback():
         "access_token": access_token
     })
 
-    print("TOKEN STORED:", access_token)
-    print("SESSION:", dict(session))
-
     return redirect("http://localhost:5173/docs")
+
 
 @auth_bp.route("/auth/github/repos")
 def get_user_repos():
@@ -83,12 +86,21 @@ def get_user_repos():
 
     token = session["github_token"]
 
-    repos = requests.get(
-        "https://api.github.com/user/repos",
-        headers={
-            "Authorization": f"Bearer {token}",
-            "Accept": "application/vnd.github+json"
-        }
-    )
+    try:
+
+        repos = requests.get(
+            "https://api.github.com/user/repos",
+            headers={
+                "Authorization": f"Bearer {token}",
+                "Accept": "application/vnd.github+json"
+            },
+            timeout=15
+        )
+
+    except requests.exceptions.RequestException:
+
+        return jsonify({
+            "error": "GitHub API unavailable"
+        }), 500
 
     return jsonify(repos.json())
